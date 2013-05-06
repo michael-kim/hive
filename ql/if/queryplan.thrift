@@ -53,6 +53,7 @@ enum OperatorType {
   LATERALVIEWFORWARD,
   HASHTABLESINK,
   HASHTABLEDUMMY,
+  PTF,
 }
 
 struct Operator {
@@ -91,6 +92,7 @@ enum StageType {
   MOVE,
   STATS,
   DEPENDENCY_COLLECTION,
+  COLUMNSTATS,
 }
 
 struct Stage {

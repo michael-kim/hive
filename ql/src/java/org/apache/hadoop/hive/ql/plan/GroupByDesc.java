@@ -19,6 +19,7 @@
 package org.apache.hadoop.hive.ql.plan;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.hadoop.hive.ql.udf.UDFType;
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDAFEvaluator;
@@ -34,13 +35,13 @@ public class GroupByDesc extends AbstractOperatorDesc {
    * PARTIAL1: partial aggregation - first phase: iterate, terminatePartial
    * PARTIAL2: partial aggregation - second phase: merge, terminatePartial
    * PARTIALS: For non-distinct the same as PARTIAL2, for distinct the same as
-   *           PARTIAL1
+   * PARTIAL1
    * FINAL: partial aggregation - final phase: merge, terminate
    * HASH: For non-distinct the same as PARTIAL1 but use hash-table-based aggregation
    * MERGEPARTIAL: FINAL for non-distinct aggregations, COMPLETE for distinct
    * aggregations.
    */
-  private static final long serialVersionUID = 1L;
+  private static long serialVersionUID = 1L;
 
   /**
    * Mode.
@@ -52,13 +53,20 @@ public class GroupByDesc extends AbstractOperatorDesc {
 
   private Mode mode;
   private boolean groupKeyNotReductionKey;
+
+  // no hash aggregations for group by
   private boolean bucketGroup;
 
   private ArrayList<ExprNodeDesc> keys;
+  private List<Integer> listGroupingSets;
+  private boolean groupingSetsPresent;
+  private int groupingSetPosition;
   private ArrayList<org.apache.hadoop.hive.ql.plan.AggregationDesc> aggregators;
   private ArrayList<java.lang.String> outputColumnNames;
   private float groupByMemoryUsage;
   private float memoryThreshold;
+  transient private boolean isDistinct;
+  private boolean dontResetAggrsDistinct;
 
   public GroupByDesc() {
   }
@@ -68,9 +76,16 @@ public class GroupByDesc extends AbstractOperatorDesc {
       final ArrayList<java.lang.String> outputColumnNames,
       final ArrayList<ExprNodeDesc> keys,
       final ArrayList<org.apache.hadoop.hive.ql.plan.AggregationDesc> aggregators,
-      final boolean groupKeyNotReductionKey,float groupByMemoryUsage, float memoryThreshold) {
+      final boolean groupKeyNotReductionKey,
+      final float groupByMemoryUsage,
+      final float memoryThreshold,
+      final List<Integer> listGroupingSets,
+      final boolean groupingSetsPresent,
+      final int groupingSetsPosition,
+      final boolean isDistinct) {
     this(mode, outputColumnNames, keys, aggregators, groupKeyNotReductionKey,
-        false, groupByMemoryUsage, memoryThreshold);
+        false, groupByMemoryUsage, memoryThreshold, listGroupingSets,
+        groupingSetsPresent, groupingSetsPosition, isDistinct);
   }
 
   public GroupByDesc(
@@ -78,7 +93,14 @@ public class GroupByDesc extends AbstractOperatorDesc {
       final ArrayList<java.lang.String> outputColumnNames,
       final ArrayList<ExprNodeDesc> keys,
       final ArrayList<org.apache.hadoop.hive.ql.plan.AggregationDesc> aggregators,
-      final boolean groupKeyNotReductionKey, final boolean bucketGroup,float groupByMemoryUsage, float memoryThreshold) {
+      final boolean groupKeyNotReductionKey,
+      final boolean bucketGroup,
+      final float groupByMemoryUsage,
+      final float memoryThreshold,
+      final List<Integer> listGroupingSets,
+      final boolean groupingSetsPresent,
+      final int groupingSetsPosition,
+      final boolean isDistinct) {
     this.mode = mode;
     this.outputColumnNames = outputColumnNames;
     this.keys = keys;
@@ -87,6 +109,10 @@ public class GroupByDesc extends AbstractOperatorDesc {
     this.bucketGroup = bucketGroup;
     this.groupByMemoryUsage = groupByMemoryUsage;
     this.memoryThreshold = memoryThreshold;
+    this.listGroupingSets = listGroupingSets;
+    this.groupingSetsPresent = groupingSetsPresent;
+    this.groupingSetPosition = groupingSetsPosition;
+    this.isDistinct = isDistinct;
   }
 
   public Mode getMode() {
@@ -177,8 +203,8 @@ public class GroupByDesc extends AbstractOperatorDesc {
     return bucketGroup;
   }
 
-  public void setBucketGroup(boolean dataSorted) {
-    bucketGroup = dataSorted;
+  public void setBucketGroup(boolean bucketGroup) {
+    this.bucketGroup = bucketGroup;
   }
 
   /**
@@ -187,15 +213,61 @@ public class GroupByDesc extends AbstractOperatorDesc {
    */
   public boolean isDistinctLike() {
     ArrayList<AggregationDesc> aggregators = getAggregators();
-    for(AggregationDesc ad: aggregators){
-      if(!ad.getDistinct()) {
+    for (AggregationDesc ad : aggregators) {
+      if (!ad.getDistinct()) {
         GenericUDAFEvaluator udafEval = ad.getGenericUDAFEvaluator();
         UDFType annot = udafEval.getClass().getAnnotation(UDFType.class);
-        if(annot == null || !annot.distinctLike()) {
+        if (annot == null || !annot.distinctLike()) {
           return false;
         }
       }
     }
     return true;
+  }
+
+  // Consider a query like:
+  // select a, b, count(distinct c) from T group by a,b with rollup;
+  // Assume that hive.map.aggr is set to true and hive.groupby.skewindata is false,
+  // in which case the group by would execute as a single map-reduce job.
+  // For the group-by, the group by keys should be: a,b,groupingSet(for rollup), c
+  // So, the starting position of grouping set need to be known
+  public List<Integer> getListGroupingSets() {
+    return listGroupingSets;
+  }
+
+  public void setListGroupingSets(final List<Integer> listGroupingSets) {
+    this.listGroupingSets = listGroupingSets;
+  }
+
+  public boolean isGroupingSetsPresent() {
+    return groupingSetsPresent;
+  }
+
+  public void setGroupingSetsPresent(boolean groupingSetsPresent) {
+    this.groupingSetsPresent = groupingSetsPresent;
+  }
+
+  public int getGroupingSetPosition() {
+    return groupingSetPosition;
+  }
+
+  public void setGroupingSetPosition(int groupingSetPosition) {
+    this.groupingSetPosition = groupingSetPosition;
+  }
+
+  public boolean isDistinct() {
+    return isDistinct;
+  }
+
+  public void setDistinct(boolean isDistinct) {
+    this.isDistinct = isDistinct;
+  }
+
+  public boolean isDontResetAggrsDistinct() {
+    return dontResetAggrsDistinct;
+  }
+
+  public void setDontResetAggrsDistinct(boolean dontResetAggrsDistinct) {
+    this.dontResetAggrsDistinct = dontResetAggrsDistinct;
   }
 }

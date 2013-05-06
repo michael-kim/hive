@@ -104,6 +104,8 @@ STAGE PLANS:
               serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
               name: default.src
             name: default.src
+      Truncated Path -> Alias:
+        /src [src]
 
   Stage: Stage-0
     Move Operator
@@ -150,8 +152,8 @@ POSTHOOK: query: desc extended stats_non_partitioned
 POSTHOOK: type: DESCTABLE
 POSTHOOK: Lineage: stats_non_partitioned.key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_non_partitioned.value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
-key	string	
-value	string	
+key                 	string              	None                
+value               	string              	None                
 	 	 
 #### A masked pattern was here ####
 PREHOOK: query: select * from stats_non_partitioned
@@ -753,10 +755,12 @@ POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.Fiel
 ds=1
 PREHOOK: query: select * from stats_partitioned where ds is not null
 PREHOOK: type: QUERY
+PREHOOK: Input: default@stats_partitioned
 PREHOOK: Input: default@stats_partitioned@ds=1
 #### A masked pattern was here ####
 POSTHOOK: query: select * from stats_partitioned where ds is not null
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@stats_partitioned
 POSTHOOK: Input: default@stats_partitioned@ds=1
 #### A masked pattern was here ####
 POSTHOOK: Lineage: stats_non_partitioned.key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
@@ -1271,9 +1275,14 @@ POSTHOOK: Lineage: stats_non_partitioned.key SIMPLE [(src)src.FieldSchema(name:k
 POSTHOOK: Lineage: stats_non_partitioned.value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
-key	string	
-value	string	
-ds	string	
+key                 	string              	None                
+value               	string              	None                
+ds                  	string              	None                
+	 	 
+# Partition Information	 	 
+# col_name            	data_type           	comment             
+	 	 
+ds                  	string              	None                
 	 	 
 #### A masked pattern was here ####
 PREHOOK: query: describe extended stats_partitioned
@@ -1284,9 +1293,14 @@ POSTHOOK: Lineage: stats_non_partitioned.key SIMPLE [(src)src.FieldSchema(name:k
 POSTHOOK: Lineage: stats_non_partitioned.value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
-key	string	
-value	string	
-ds	string	
+key                 	string              	None                
+value               	string              	None                
+ds                  	string              	None                
+	 	 
+# Partition Information	 	 
+# col_name            	data_type           	comment             
+	 	 
+ds                  	string              	None                
 	 	 
 #### A masked pattern was here ####
 PREHOOK: query: drop table stats_non_partitioned
@@ -1432,6 +1446,8 @@ STAGE PLANS:
               serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
               name: default.src
             name: default.src
+      Truncated Path -> Alias:
+        /src [src]
 
   Stage: Stage-7
     Conditional Operator
@@ -1531,6 +1547,8 @@ STAGE PLANS:
               serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
               name: default.stats_non_partitioned
             name: default.stats_non_partitioned
+      Truncated Path -> Alias:
+#### A masked pattern was here ####
 
   Stage: Stage-5
     Map Reduce
@@ -1595,6 +1613,8 @@ STAGE PLANS:
               serde: org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe
               name: default.stats_non_partitioned
             name: default.stats_non_partitioned
+      Truncated Path -> Alias:
+#### A masked pattern was here ####
 
   Stage: Stage-6
     Move Operator
@@ -1629,8 +1649,8 @@ POSTHOOK: Lineage: stats_non_partitioned.value SIMPLE [(src)src.FieldSchema(name
 POSTHOOK: Lineage: stats_non_partitioned.value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
-key	string	
-value	string	
+key                 	string              	None                
+value               	string              	None                
 	 	 
 #### A masked pattern was here ####
 PREHOOK: query: select * from stats_non_partitioned
@@ -2298,10 +2318,12 @@ POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.Fiel
 ds=1
 PREHOOK: query: select * from stats_partitioned where ds is not null
 PREHOOK: type: QUERY
+PREHOOK: Input: default@stats_partitioned
 PREHOOK: Input: default@stats_partitioned@ds=1
 #### A masked pattern was here ####
 POSTHOOK: query: select * from stats_partitioned where ds is not null
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@stats_partitioned
 POSTHOOK: Input: default@stats_partitioned@ds=1
 #### A masked pattern was here ####
 POSTHOOK: Lineage: stats_non_partitioned.key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
@@ -2824,9 +2846,14 @@ POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldS
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
-key	string	
-value	string	
-ds	string	
+key                 	string              	None                
+value               	string              	None                
+ds                  	string              	None                
+	 	 
+# Partition Information	 	 
+# col_name            	data_type           	comment             
+	 	 
+ds                  	string              	None                
 	 	 
 #### A masked pattern was here ####
 PREHOOK: query: describe extended stats_partitioned
@@ -2841,8 +2868,13 @@ POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldS
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).key SIMPLE [(src)src.FieldSchema(name:key, type:string, comment:default), ]
 POSTHOOK: Lineage: stats_partitioned PARTITION(ds=1).value SIMPLE [(src)src.FieldSchema(name:value, type:string, comment:default), ]
-key	string	
-value	string	
-ds	string	
+key                 	string              	None                
+value               	string              	None                
+ds                  	string              	None                
+	 	 
+# Partition Information	 	 
+# col_name            	data_type           	comment             
+	 	 
+ds                  	string              	None                
 	 	 
 #### A masked pattern was here ####

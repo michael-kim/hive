@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.hive.ql.plan;
 
+import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -53,6 +54,16 @@ public class JoinDesc extends AbstractOperatorDesc {
   // alias to filter mapping
   private Map<Byte, List<ExprNodeDesc>> filters;
 
+  // pos of outer join alias=<pos of other alias:num of filters on outer join alias>xn
+  // for example,
+  // a left outer join b on a.k=b.k AND a.k>5 full outer join c on a.k=c.k AND a.k>10 AND c.k>20
+  //
+  // That means on a(pos=0), there are overlapped filters associated with b(pos=1) and c(pos=2).
+  // (a)b has one filter on a (a.k>5) and (a)c also has one filter on a (a.k>10),
+  // making filter map for a as 0=1:1:2:1.
+  // C also has one outer join filter associated with A(c.k>20), which is making 2=0:1
+  private int[][] filterMap;
+
   // key index to nullsafe join flag
   private boolean[] nullsafes;
 
@@ -70,6 +81,10 @@ public class JoinDesc extends AbstractOperatorDesc {
   protected Byte[] tagOrder;
   private TableDesc keyTableDesc;
 
+  // this operator cannot be converted to mapjoin cause output is expected to be sorted on join key
+  // it's resulted from RS-dedup optimization, which removes following RS under some condition
+  private boolean fixedAsSorted;
+
   public JoinDesc() {
   }
 
@@ -82,6 +97,11 @@ public class JoinDesc extends AbstractOperatorDesc {
     this.conds = conds;
     this.filters = filters;
 
+    resetOrder();
+  }
+
+  // called by late-MapJoin processor (hive.auto.convert.join=true for example)
+  public void resetOrder() {
     tagOrder = new Byte[exprs.size()];
     for (int i = 0; i < tagOrder.length; i++) {
       tagOrder[i] = (byte) i;
@@ -166,6 +186,7 @@ public class JoinDesc extends AbstractOperatorDesc {
     this.smallKeysDirMap = clone.smallKeysDirMap;
     this.tagOrder = clone.tagOrder;
     this.filters = clone.filters;
+    this.filterMap = clone.filterMap;
   }
 
   public Map<Byte, List<ExprNodeDesc>> getExprs() {
@@ -434,5 +455,86 @@ public class JoinDesc extends AbstractOperatorDesc {
       hasNS |= ns;
     }
     return hasNS ? Arrays.toString(nullsafes) : null;
+  }
+
+  public int[][] getFilterMap() {
+    return filterMap;
+  }
+
+  public void setFilterMap(int[][] filterMap) {
+    this.filterMap = filterMap;
+  }
+
+  @Explain(displayName = "filter mappings", normalExplain = false)
+  public Map<Integer, String> getFilterMapString() {
+    return toCompactString(filterMap);
+  }
+
+  protected Map<Integer, String> toCompactString(int[][] filterMap) {
+    if (filterMap == null) {
+      return null;
+    }
+    filterMap = compactFilter(filterMap);
+    Map<Integer, String> result = new LinkedHashMap<Integer, String>();
+    for (int i = 0 ; i < filterMap.length; i++) {
+      if (filterMap[i] == null) {
+        continue;
+      }
+      result.put(i, Arrays.toString(filterMap[i]));
+    }
+    return result.isEmpty() ? null : result;
+  }
+
+  // remove filterMap for outer alias if filter is not exist on that
+  private int[][] compactFilter(int[][] filterMap) {
+    if (filterMap == null) {
+      return null;
+    }
+    for (int i = 0; i < filterMap.length; i++) {
+      if (filterMap[i] != null) {
+        boolean noFilter = true;
+        // join positions for even index, filter lengths for odd index
+        for (int j = 1; j < filterMap[i].length; j += 2) {
+          if (filterMap[i][j] > 0) {
+            noFilter = false;
+            break;
+          }
+        }
+        if (noFilter) {
+          filterMap[i] = null;
+        }
+      }
+    }
+    for (int[] mapping : filterMap) {
+      if (mapping != null) {
+        return filterMap;
+      }
+    }
+    return null;
+  }
+
+  public int getTagLength() {
+    int tagLength = -1;
+    for (byte tag : getExprs().keySet()) {
+      tagLength = Math.max(tagLength, tag + 1);
+    }
+    return tagLength;
+  }
+
+  @SuppressWarnings("unchecked")
+  public <T> T[] convertToArray(Map<Byte, T> source, Class<T> compType) {
+    T[] result = (T[]) Array.newInstance(compType, getTagLength());
+    for (Map.Entry<Byte, T> entry : source.entrySet()) {
+      result[entry.getKey()] = entry.getValue();
+    }
+    return result;
+  }
+
+  public boolean isFixedAsSorted() {
+    return fixedAsSorted;
+  }
+
+  public void setFixedAsSorted(boolean fixedAsSorted) {
+    this.fixedAsSorted = fixedAsSorted;
   }
 }

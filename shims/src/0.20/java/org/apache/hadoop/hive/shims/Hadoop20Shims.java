@@ -22,11 +22,16 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import javax.security.auth.Subject;
 import javax.security.auth.login.LoginException;
@@ -36,6 +41,7 @@ import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.PathFilter;
+import org.apache.hadoop.fs.Trash;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hive.io.HiveIOExceptionHandlerUtil;
 import org.apache.hadoop.io.Text;
@@ -46,6 +52,7 @@ import org.apache.hadoop.mapred.InputSplit;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.JobContext;
 import org.apache.hadoop.mapred.JobStatus;
+import org.apache.hadoop.mapred.MiniMRCluster;
 import org.apache.hadoop.mapred.OutputCommitter;
 import org.apache.hadoop.mapred.RecordReader;
 import org.apache.hadoop.mapred.Reporter;
@@ -92,6 +99,43 @@ public class Hadoop20Shims implements HadoopShims {
    */
   public void setTmpFiles(String prop, String files) {
     // gone in 20+
+  }
+
+
+  /**
+   * Returns a shim to wrap MiniMrCluster
+   */
+  public MiniMrShim getMiniMrCluster(Configuration conf, int numberOfTaskTrackers,
+                                     String nameNode, int numDir) throws IOException {
+    return new MiniMrShim(conf, numberOfTaskTrackers, nameNode, numDir);
+  }
+
+  /**
+   * Shim for MiniMrCluster
+   */
+  public class MiniMrShim implements HadoopShims.MiniMrShim {
+
+    private final MiniMRCluster mr;
+
+    public MiniMrShim(Configuration conf, int numberOfTaskTrackers,
+        String nameNode, int numDir) throws IOException {
+      this.mr = new MiniMRCluster(numberOfTaskTrackers, nameNode, numDir);
+    }
+
+    @Override
+    public int getJobTrackerPort() throws UnsupportedOperationException {
+      return mr.getJobTrackerPort();
+    }
+
+    @Override
+    public void shutdown() throws IOException {
+      mr.shutdown();
+    }
+
+    @Override
+    public void setupConfiguration(Configuration conf) {
+      setJobLauncherRpcAddress(conf, "localhost:" + mr.getJobTrackerPort());
+    }
   }
 
   public HadoopShims.MiniDFSShim getMiniDfs(Configuration conf,
@@ -158,8 +202,15 @@ public class Hadoop20Shims implements HadoopShims {
     }
 
     public InputSplitShim(CombineFileSplit old) throws IOException {
-      super(old);
+      super(old.getJob(), old.getPaths(), old.getStartOffsets(),
+          old.getLengths(), dedup(old.getLocations()));
       _isShrinked = false;
+    }
+
+    private static String[] dedup(String[] locations) {
+      Set<String> dedup = new HashSet<String>();
+      Collections.addAll(dedup, locations);
+      return dedup.toArray(new String[dedup.size()]);
     }
 
     @Override
@@ -441,26 +492,34 @@ public class Hadoop20Shims implements HadoopShims {
     HadoopArchives har = new HadoopArchives(conf);
     List<String> args = new ArrayList<String>();
 
-    if (conf.get("hive.archive.har.parentdir.settable") == null) {
-      throw new RuntimeException("hive.archive.har.parentdir.settable is not set");
-    }
-    boolean parentSettable =
-      conf.getBoolean("hive.archive.har.parentdir.settable", false);
-
-    if (parentSettable) {
-      args.add("-archiveName");
-      args.add(archiveName);
-      args.add("-p");
-      args.add(sourceDir.toString());
-      args.add(destDir.toString());
-    } else {
-      args.add("-archiveName");
-      args.add(archiveName);
-      args.add(sourceDir.toString());
-      args.add(destDir.toString());
-    }
+    args.add("-archiveName");
+    args.add(archiveName);
+    args.add(sourceDir.toString());
+    args.add(destDir.toString());
 
     return ToolRunner.run(har, args.toArray(new String[0]));
+  }
+
+  /*
+   *(non-Javadoc)
+   * @see org.apache.hadoop.hive.shims.HadoopShims#getHarUri(java.net.URI, java.net.URI, java.net.URI)
+   * This particular instance is for Hadoop 20 which creates an archive
+   * with the entire directory path from which one created the archive as
+   * compared against the one used by Hadoop 1.0 (within HadoopShimsSecure)
+   * where a relative path is stored within the archive.
+   */
+  public URI getHarUri (URI original, URI base, URI originalBase)
+    throws URISyntaxException {
+    URI relative = null;
+
+    String dirInArchive = original.getPath();
+    if (dirInArchive.length() > 1 && dirInArchive.charAt(0) == '/') {
+      dirInArchive = dirInArchive.substring(1);
+    }
+
+    relative = new URI(null, null, dirInArchive, null);
+
+    return base.resolve(relative);
   }
 
   public static class NullOutputCommitter extends OutputCommitter {
@@ -519,10 +578,16 @@ public class Hadoop20Shims implements HadoopShims {
   }
 
   @Override
-  public void doAs(UserGroupInformation ugi, PrivilegedExceptionAction<Void> pvea) throws
+  public void setTokenStr(UserGroupInformation ugi, String tokenStr, String tokenService)
+    throws IOException {
+    throw new UnsupportedOperationException("Tokens are not supported in current hadoop version");
+  }
+
+  @Override
+  public <T> T doAs(UserGroupInformation ugi, PrivilegedExceptionAction<T> pvea) throws
     IOException, InterruptedException {
     try {
-      Subject.doAs(SecurityUtil.getSubject(ugi),pvea);
+      return Subject.doAs(SecurityUtil.getSubject(ugi),pvea);
     } catch (PrivilegedActionException e) {
       throw new IOException(e);
     }
@@ -531,6 +596,21 @@ public class Hadoop20Shims implements HadoopShims {
   @Override
   public UserGroupInformation createRemoteUser(String userName, List<String> groupNames) {
     return new UnixUserGroupInformation(userName, groupNames.toArray(new String[0]));
+  }
+
+  @Override
+  public void loginUserFromKeytab(String principal, String keytabFile) throws IOException {
+    throw new UnsupportedOperationException("Kerberos login is not supported in current hadoop version");
+  }
+
+  @Override
+  public UserGroupInformation createProxyUser(String userName) throws IOException {
+    return createRemoteUser(userName, null);
+  }
+
+  @Override
+  public boolean isSecurityEnabled() {
+    return false;
   }
 
   @Override
@@ -577,5 +657,54 @@ public class Hadoop20Shims implements HadoopShims {
   @Override
   public org.apache.hadoop.mapreduce.JobContext newJobContext(Job job) {
     return new org.apache.hadoop.mapreduce.JobContext(job.getConfiguration(), job.getJobID());
+  }
+
+  @Override
+  public void closeAllForUGI(UserGroupInformation ugi) {
+    // No such functionality in ancient hadoop
+    return;
+  }
+
+  @Override
+  public boolean isLocalMode(Configuration conf) {
+    return "local".equals(getJobLauncherRpcAddress(conf));
+  }
+
+  @Override
+  public String getJobLauncherRpcAddress(Configuration conf) {
+    return conf.get("mapred.job.tracker");
+  }
+
+  @Override
+  public void setJobLauncherRpcAddress(Configuration conf, String val) {
+    conf.set("mapred.job.tracker", val);
+  }
+
+  @Override
+  public String getJobLauncherHttpAddress(Configuration conf) {
+    return conf.get("mapred.job.tracker.http.address");
+  }
+
+  @Override
+  public boolean moveToAppropriateTrash(FileSystem fs, Path path, Configuration conf)
+          throws IOException {
+    // older versions of Hadoop don't have a Trash constructor based on the
+    // Path or FileSystem. So need to achieve this by creating a dummy conf.
+    // this needs to be filtered out based on version
+
+    Configuration dupConf = new Configuration(conf);
+    FileSystem.setDefaultUri(dupConf, fs.getUri());
+    Trash trash = new Trash(dupConf);
+    return trash.moveToTrash(path);
+  }
+
+  @Override
+  public long getDefaultBlockSize(FileSystem fs, Path path) {
+    return fs.getDefaultBlockSize();
+  }
+
+  @Override
+  public short getDefaultReplication(FileSystem fs, Path path) {
+    return fs.getDefaultReplication();
   }
 }

@@ -46,6 +46,7 @@ import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
+import org.apache.hadoop.util.Shell;
 import org.apache.hadoop.util.StringUtils;
 
 /**
@@ -80,6 +81,9 @@ public class ScriptOperator extends Operator<ScriptDesc> implements
   transient RecordWriter scriptOutWriter = null;
 
   static final String IO_EXCEPTION_BROKEN_PIPE_STRING = "Broken pipe";
+  static final String IO_EXCEPTION_STREAM_CLOSED = "Stream closed";
+  static final String IO_EXCEPTION_PIPE_ENDED_WIN = "The pipe has been ended";
+  static final String IO_EXCEPTION_PIPE_CLOSED_WIN = "The pipe is being closed";
 
   /**
    * sends periodic reports back to the tracker.
@@ -245,7 +249,13 @@ public class ScriptOperator extends Operator<ScriptDesc> implements
   }
 
   boolean isBrokenPipeException(IOException e) {
-    return (e.getMessage().compareToIgnoreCase(IO_EXCEPTION_BROKEN_PIPE_STRING) == 0);
+  if (Shell.WINDOWS) {
+      String errMsg = e.getMessage();
+      return errMsg.equalsIgnoreCase(IO_EXCEPTION_PIPE_CLOSED_WIN) ||
+          errMsg.equalsIgnoreCase(IO_EXCEPTION_PIPE_ENDED_WIN);
+    }
+    return (e.getMessage().equalsIgnoreCase(IO_EXCEPTION_BROKEN_PIPE_STRING) ||
+            e.getMessage().equalsIgnoreCase(IO_EXCEPTION_STREAM_CLOSED));
   }
 
   boolean allowPartialConsumption() {
@@ -362,6 +372,21 @@ public class ScriptOperator extends Operator<ScriptDesc> implements
       throw new HiveException(e);
     } catch (IOException e) {
       if (isBrokenPipeException(e) && allowPartialConsumption()) {
+        // Give the outThread a chance to finish before marking the operator as done
+        try {
+          scriptPid.waitFor();
+        } catch (InterruptedException interruptedException) {
+        }
+        // best effort attempt to write all output from the script before marking the operator
+        // as done
+        try {
+          if (outThread != null) {
+            outThread.join(0);
+          }
+        } catch (Exception e2) {
+          LOG.warn("Exception in closing outThread: "
+              + StringUtils.stringifyException(e2));
+        }
         setDone(true);
         LOG
             .warn("Got broken pipe during write: ignoring exception and setting operator to done");
@@ -691,6 +716,10 @@ public class ScriptOperator extends Operator<ScriptDesc> implements
 
   @Override
   public String getName() {
+    return getOperatorName();
+  }
+
+  static public String getOperatorName() {
     return "SCR";
   }
 

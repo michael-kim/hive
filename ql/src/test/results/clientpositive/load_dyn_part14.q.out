@@ -1,7 +1,13 @@
-PREHOOK: query: create table if not exists nzhang_part14 (key string) 
+PREHOOK: query: -- EXCLUDE_OS_WINDOWS
+-- excluded on windows because of difference in file name encoding logic
+
+create table if not exists nzhang_part14 (key string) 
   partitioned by (value string)
 PREHOOK: type: CREATETABLE
-POSTHOOK: query: create table if not exists nzhang_part14 (key string) 
+POSTHOOK: query: -- EXCLUDE_OS_WINDOWS
+-- excluded on windows because of difference in file name encoding logic
+
+create table if not exists nzhang_part14 (key string) 
   partitioned by (value string)
 POSTHOOK: type: CREATETABLE
 POSTHOOK: Output: default@nzhang_part14
@@ -9,8 +15,13 @@ PREHOOK: query: describe extended nzhang_part14
 PREHOOK: type: DESCTABLE
 POSTHOOK: query: describe extended nzhang_part14
 POSTHOOK: type: DESCTABLE
-key	string	
-value	string	
+key                 	string              	None                
+value               	string              	None                
+	 	 
+# Partition Information	 	 
+# col_name            	data_type           	comment             
+	 	 
+value               	string              	None                
 	 	 
 #### A masked pattern was here ####
 PREHOOK: query: explain
@@ -297,12 +308,14 @@ value=__HIVE_DEFAULT_PARTITION__
 PREHOOK: query: select * from nzhang_part14 where value <> 'a'
 order by key, value
 PREHOOK: type: QUERY
+PREHOOK: Input: default@nzhang_part14
 PREHOOK: Input: default@nzhang_part14@value= 
 PREHOOK: Input: default@nzhang_part14@value=__HIVE_DEFAULT_PARTITION__
 #### A masked pattern was here ####
 POSTHOOK: query: select * from nzhang_part14 where value <> 'a'
 order by key, value
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@nzhang_part14
 POSTHOOK: Input: default@nzhang_part14@value= 
 POSTHOOK: Input: default@nzhang_part14@value=__HIVE_DEFAULT_PARTITION__
 #### A masked pattern was here ####

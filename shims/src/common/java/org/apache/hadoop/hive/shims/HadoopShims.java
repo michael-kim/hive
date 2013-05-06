@@ -21,6 +21,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.security.PrivilegedExceptionAction;
 import java.util.List;
 
@@ -111,6 +113,21 @@ public interface HadoopShims {
   long getAccessTime(FileStatus file);
 
   /**
+   * Returns a shim to wrap MiniMrCluster
+   */
+  public MiniMrShim getMiniMrCluster(Configuration conf, int numberOfTaskTrackers,
+                                     String nameNode, int numDir) throws IOException;
+
+  /**
+   * Shim for MiniMrCluster
+   */
+  public interface MiniMrShim {
+    public int getJobTrackerPort() throws UnsupportedOperationException;
+    public void shutdown() throws IOException;
+    public void setupConfiguration(Configuration conf);
+  }
+
+  /**
    * Returns a shim to wrap MiniDFSCluster. This is necessary since this class
    * was moved from org.apache.hadoop.dfs to org.apache.hadoop.hdfs
    */
@@ -159,6 +176,9 @@ public interface HadoopShims {
 
   int createHadoopArchive(Configuration conf, Path parentDir, Path destDir,
       String archiveName) throws Exception;
+
+  public URI getHarUri(URI original, URI base, URI originalBase)
+        throws URISyntaxException;
   /**
    * Hive uses side effect files exclusively for it's output. It also manages
    * the setup/cleanup/commit of output from the hive client. As a result it does
@@ -183,16 +203,19 @@ public interface HadoopShims {
    * In secure versions of Hadoop, this simply returns the current
    * access control context's user, ignoring the configuration.
    */
-  public UserGroupInformation getUGIForConf(Configuration conf) throws LoginException, IOException;
 
+  public void closeAllForUGI(UserGroupInformation ugi);
+
+  public UserGroupInformation getUGIForConf(Configuration conf) throws LoginException, IOException;
   /**
    * Used by metastore server to perform requested rpc in client context.
+   * @param <T>
    * @param ugi
    * @param pvea
    * @throws IOException
    * @throws InterruptedException
    */
-  public void doAs(UserGroupInformation ugi, PrivilegedExceptionAction<Void> pvea) throws
+  public <T> T doAs(UserGroupInformation ugi, PrivilegedExceptionAction<T> pvea) throws
     IOException, InterruptedException;
 
   /**
@@ -218,6 +241,12 @@ public interface HadoopShims {
   public boolean isSecureShimImpl();
 
   /**
+   * Return true if the hadoop configuration has security enabled
+   * @return
+   */
+  public boolean isSecurityEnabled();
+
+  /**
    * Get the string form of the token given a token signature.
    * The signature is used as the value of the "service" field in the token for lookup.
    * Ref: AbstractDelegationTokenSelector in Hadoop. If there exists such a token
@@ -234,6 +263,16 @@ public interface HadoopShims {
    */
   String getTokenStrForm(String tokenSignature) throws IOException;
 
+  /**
+   * Add a delegation token to the given ugi
+   * @param ugi
+   * @param tokenStr
+   * @param tokenService
+   * @throws IOException
+   */
+  void setTokenStr(UserGroupInformation ugi, String tokenStr, String tokenService)
+    throws IOException;
+
 
   enum JobTrackerState { INITIALIZING, RUNNING };
 
@@ -249,6 +288,81 @@ public interface HadoopShims {
   public TaskAttemptContext newTaskAttemptContext(Configuration conf, final Progressable progressable);
 
   public JobContext newJobContext(Job job);
+
+  /**
+   * Check wether MR is configured to run in local-mode
+   * @param conf
+   * @return
+   */
+  public boolean isLocalMode(Configuration conf);
+
+  /**
+   * All retrieval of jobtracker/resource manager rpc address
+   * in the configuration should be done through this shim
+   * @param conf
+   * @return
+   */
+  public String getJobLauncherRpcAddress(Configuration conf);
+
+  /**
+   * All updates to jobtracker/resource manager rpc address
+   * in the configuration should be done through this shim
+   * @param conf
+   * @return
+   */
+  public void setJobLauncherRpcAddress(Configuration conf, String val);
+
+  /**
+   * All references to jobtracker/resource manager http address
+   * in the configuration should be done through this shim
+   * @param conf
+   * @return
+   */
+  public String getJobLauncherHttpAddress(Configuration conf);
+
+
+ /**
+  *  Perform kerberos login using the given principal and keytab
+ * @throws IOException
+  */
+  public void loginUserFromKeytab(String principal, String keytabFile) throws IOException;
+
+  /**
+   * Move the directory/file to trash. In case of the symlinks or mount points, the file is
+   * moved to the trashbin in the actual volume of the path p being deleted
+   * @param fs
+   * @param path
+   * @param conf
+   * @return false if the item is already in the trash or trash is disabled
+   * @throws IOException
+   */
+  public boolean moveToAppropriateTrash(FileSystem fs, Path path, Configuration conf)
+          throws IOException;
+
+  /**
+   * Get the default block size for the path. FileSystem alone is not sufficient to
+   * determine the same, as in case of CSMT the underlying file system determines that.
+   * @param fs
+   * @param path
+   * @return
+   */
+  public long getDefaultBlockSize(FileSystem fs, Path path);
+
+  /**
+   * Get the default replication for a path. In case of CSMT the given path will be used to
+   * locate the actual filesystem.
+   * @param fs
+   * @param path
+   * @return
+   */
+  public short getDefaultReplication(FileSystem fs, Path path);
+
+  /**
+   * Create the proxy ugi for the given userid
+   * @param userName
+   * @return
+   */
+  UserGroupInformation createProxyUser(String userName) throws IOException;
 
   /**
    * InputSplitShim.
@@ -310,4 +424,5 @@ public interface HadoopShims {
     RecordReader getRecordReader(JobConf job, InputSplitShim split, Reporter reporter,
         Class<RecordReader<K, V>> rrClass) throws IOException;
   }
+
 }

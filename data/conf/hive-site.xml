@@ -48,7 +48,7 @@
 
 <property>
   <name>hive.exec.local.scratchdir</name>
-  <value>${build.dir}/scratchdir/local/</value>
+  <value>${build.dir}/localscratchdir/</value>
   <description>Local scratch space for Hive jobs</description>
 </property>
 
@@ -168,6 +168,18 @@
     Let hive determine whether to run in local mode automatically
     Disabling this for tests so that minimr is not affected
   </description>
+</property>
+
+<property>
+  <name>hive.auto.convert.join</name>
+  <value>false</value>
+  <description>Whether Hive enable the optimization about converting common join into mapjoin based on the input file size</description>
+</property>
+
+<property>
+  <name>hive.ignore.mapjoin.hint</name>
+  <value>false</value>
+  <description>Whether Hive ignores the mapjoin hint</description>
 </property>
 
 <property>

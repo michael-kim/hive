@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Properties;
 import java.util.Set;
 
@@ -45,9 +46,11 @@ import org.apache.hadoop.mapred.FileOutputFormat;
 import org.apache.hadoop.mapred.InputFormat;
 import org.apache.hadoop.mapred.JobConf;
 import org.apache.hadoop.mapred.OutputFormat;
+import org.apache.hadoop.mapred.Reporter;
 import org.apache.hadoop.mapred.SequenceFileInputFormat;
 import org.apache.hadoop.mapred.SequenceFileOutputFormat;
 import org.apache.hadoop.mapred.TextInputFormat;
+import org.apache.hadoop.util.Shell;
 
 /**
  * An util class for various Hive file format tasks.
@@ -211,7 +214,7 @@ public final class HiveFileFormatUtils {
 
   public static RecordWriter getHiveRecordWriter(JobConf jc,
       TableDesc tableInfo, Class<? extends Writable> outputClass,
-      FileSinkDesc conf, Path outPath) throws HiveException {
+      FileSinkDesc conf, Path outPath, Reporter reporter) throws HiveException {
     try {
       HiveOutputFormat<?, ?> hiveOutputFormat = tableInfo
           .getOutputFileFormatClass().newInstance();
@@ -232,7 +235,7 @@ public final class HiveFileFormatUtils {
         }
       }
       return getRecordWriter(jc_output, hiveOutputFormat, outputClass,
-          isCompressed, tableInfo.getProperties(), outPath);
+          isCompressed, tableInfo.getProperties(), outPath, reporter);
     } catch (Exception e) {
       throw new HiveException(e);
     }
@@ -241,10 +244,11 @@ public final class HiveFileFormatUtils {
   public static RecordWriter getRecordWriter(JobConf jc,
       HiveOutputFormat<?, ?> hiveOutputFormat,
       final Class<? extends Writable> valueClass, boolean isCompressed,
-      Properties tableProp, Path outPath) throws IOException, HiveException {
+      Properties tableProp, Path outPath, Reporter reporter
+      ) throws IOException, HiveException {
     if (hiveOutputFormat != null) {
       return hiveOutputFormat.getHiveRecordWriter(jc, outPath, valueClass,
-          isCompressed, tableProp, null);
+          isCompressed, tableProp, reporter);
     }
     return null;
   }
@@ -265,8 +269,13 @@ public final class HiveFileFormatUtils {
     PartitionDesc part = doGetPartitionDescFromPath(pathToPartitionInfo, dir);
 
     if (part == null
-        && (ignoreSchema || (dir.toUri().getScheme() == null || dir.toUri().getScheme().trim()
-            .equals("")))) {
+        && (ignoreSchema
+            || (dir.toUri().getScheme() == null || dir.toUri().getScheme().trim()
+            .equals(""))
+            || pathsContainNoScheme(pathToPartitionInfo)
+            )
+
+        ) {
 
       Map<String, PartitionDesc> newPathToPartitionInfo = null;
       if (cacheMap != null) {
@@ -289,6 +298,17 @@ public final class HiveFileFormatUtils {
       throw new IOException("cannot find dir = " + dir.toString()
                           + " in pathToPartitionInfo: " + pathToPartitionInfo.keySet());
     }
+  }
+
+  private static boolean pathsContainNoScheme(Map<String, PartitionDesc> pathToPartitionInfo) {
+
+    for( Entry<String, PartitionDesc> pe  : pathToPartitionInfo.entrySet()){
+      if(new Path(pe.getKey()).toUri().getScheme() != null){
+        return false;
+      }
+    }
+    return true;
+
   }
 
   private static void populateNewPartitionDesc(
@@ -355,6 +375,11 @@ public final class HiveFileFormatUtils {
     }
 
     String dirPath = dir.toUri().getPath();
+    if(Shell.WINDOWS){
+      //temp hack
+      //do this to get rid of "/" before the drive letter in windows
+      dirPath = new Path(dirPath).toString();
+    }
     if (foundAlias(pathToAliases, dirPath)) {
       return dirPath;
     }
@@ -380,7 +405,7 @@ public final class HiveFileFormatUtils {
   }
 
   /**
-   * Get the list of operatators from the opeerator tree that are needed for the path
+   * Get the list of operators from the operator tree that are needed for the path
    * @param pathToAliases  mapping from path to aliases
    * @param aliasToWork    The operator tree to be invoked for a given alias
    * @param dir            The path to look for

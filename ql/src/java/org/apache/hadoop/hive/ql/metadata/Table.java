@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.io.Serializable;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -31,6 +32,7 @@ import java.util.Properties;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.common.JavaUtils;
@@ -43,11 +45,12 @@ import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Order;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.SkewedInfo;
+import org.apache.hadoop.hive.metastore.api.SkewedValueList;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.ql.io.HiveFileFormatUtils;
 import org.apache.hadoop.hive.ql.io.HiveOutputFormat;
 import org.apache.hadoop.hive.ql.io.HiveSequenceFileOutputFormat;
-import org.apache.hadoop.hive.serde.Constants;
+import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.Deserializer;
 import org.apache.hadoop.hive.serde2.MetadataTypedColumnsetSerDe;
 import org.apache.hadoop.hive.serde2.SerDeException;
@@ -136,13 +139,13 @@ public class Table implements Serializable {
       // We have to use MetadataTypedColumnsetSerDe because LazySimpleSerDe does
       // not support a table with no columns.
       sd.getSerdeInfo().setSerializationLib(MetadataTypedColumnsetSerDe.class.getName());
-      sd.getSerdeInfo().getParameters().put(Constants.SERIALIZATION_FORMAT, "1");
+      sd.getSerdeInfo().getParameters().put(serdeConstants.SERIALIZATION_FORMAT, "1");
       sd.setInputFormat(SequenceFileInputFormat.class.getName());
       sd.setOutputFormat(HiveSequenceFileOutputFormat.class.getName());
       SkewedInfo skewInfo = new SkewedInfo();
       skewInfo.setSkewedColNames(new ArrayList<String>());
       skewInfo.setSkewedColValues(new ArrayList<List<String>>());
-      skewInfo.setSkewedColValueLocationMaps(new HashMap<List<String>, String>());
+      skewInfo.setSkewedColValueLocationMaps(new HashMap<SkewedValueList, String>());
       sd.setSkewedInfo(skewInfo);
     }
 
@@ -228,8 +231,8 @@ public class Table implements Serializable {
     tTable.getSd().setOutputFormat(outputFormatClass.getName());
   }
 
-  final public Properties getSchema() {
-    return MetaStoreUtils.getSchema(tTable);
+  final public Properties getMetadata() {
+    return MetaStoreUtils.getTableMetadata(tTable);
   }
 
   final public Path getPath() {
@@ -279,7 +282,7 @@ public class Table implements Serializable {
       storageHandler = HiveUtils.getStorageHandler(
         Hive.get().getConf(),
         getProperty(
-          org.apache.hadoop.hive.metastore.api.Constants.META_TABLE_STORAGE));
+          org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.META_TABLE_STORAGE));
     } catch (Exception e) {
       throw new RuntimeException(e);
     }
@@ -516,19 +519,20 @@ public class Table implements Serializable {
 
   public void setSkewedValueLocationMap(List<String> valList, String dirName)
       throws HiveException {
-    Map<List<String>, String> mappings = tTable.getSd().getSkewedInfo()
+    Map<SkewedValueList, String> mappings = tTable.getSd().getSkewedInfo()
         .getSkewedColValueLocationMaps();
     if (null == mappings) {
-      mappings = new HashMap<List<String>, String>();
+      mappings = new HashMap<SkewedValueList, String>();
       tTable.getSd().getSkewedInfo().setSkewedColValueLocationMaps(mappings);
     }
 
     // Add or update new mapping
-    mappings.put(valList, dirName);
+    mappings.put(new SkewedValueList(valList), dirName);
   }
 
-  public Map<List<String>,String> getSkewedColValueLocationMaps() {
-    return tTable.getSd().getSkewedInfo().getSkewedColValueLocationMaps();
+  public Map<SkewedValueList,String> getSkewedColValueLocationMaps() {
+    return (tTable.getSd().getSkewedInfo() != null) ? tTable.getSd().getSkewedInfo()
+        .getSkewedColValueLocationMaps() : new HashMap<SkewedValueList, String>();
   }
 
   public void setSkewedColValues(List<List<String>> skewedValues) throws HiveException {
@@ -536,7 +540,8 @@ public class Table implements Serializable {
   }
 
   public List<List<String>> getSkewedColValues(){
-    return tTable.getSd().getSkewedInfo().getSkewedColValues();
+    return (tTable.getSd().getSkewedInfo() != null) ? tTable.getSd().getSkewedInfo()
+        .getSkewedColValues() : new ArrayList<List<String>>();
   }
 
   public void setSkewedColNames(List<String> skewedColNames) throws HiveException {
@@ -544,9 +549,25 @@ public class Table implements Serializable {
   }
 
   public List<String> getSkewedColNames() {
-    return tTable.getSd().getSkewedInfo().getSkewedColNames();
+    return (tTable.getSd().getSkewedInfo() != null) ? tTable.getSd().getSkewedInfo()
+        .getSkewedColNames() : new ArrayList<String>();
   }
 
+  public SkewedInfo getSkewedInfo() {
+    return tTable.getSd().getSkewedInfo();
+  }
+
+  public void setSkewedInfo(SkewedInfo skewedInfo) throws HiveException {
+    tTable.getSd().setSkewedInfo(skewedInfo);
+  }
+
+  public boolean isStoredAsSubDirectories() {
+    return tTable.getSd().isStoredAsSubDirectories();
+  }
+
+  public void setStoredAsSubDirectories(boolean storedAsSubDirectories) throws HiveException {
+    tTable.getSd().setStoredAsSubDirectories(storedAsSubDirectories);
+  }
 
   private boolean isField(String col) {
     for (FieldSchema field : getCols()) {
@@ -619,7 +640,7 @@ public class Table implements Serializable {
     FileSystem fs;
     try {
       fs = FileSystem.get(getDataLocation(), Hive.get().getConf());
-      Hive.copyFiles(srcf, new Path(getDataLocation().getPath()), fs);
+      Hive.copyFiles(Hive.get().getConf(), srcf, new Path(getDataLocation().getPath()), fs);
     } catch (IOException e) {
       throw new HiveException("addFiles: filesystem error in check phase", e);
     }
@@ -835,7 +856,7 @@ public class Table implements Serializable {
 
   public boolean isNonNative() {
     return getProperty(
-      org.apache.hadoop.hive.metastore.api.Constants.META_TABLE_STORAGE)
+      org.apache.hadoop.hive.metastore.api.hive_metastoreConstants.META_TABLE_STORAGE)
       != null;
   }
 
@@ -906,5 +927,31 @@ public class Table implements Serializable {
   public List<Index> getAllIndexes(short max) throws HiveException {
     Hive hive = Hive.get();
     return hive.getIndexes(getTTable().getDbName(), getTTable().getTableName(), max);
+  }
+
+  @SuppressWarnings("nls")
+  public FileStatus[] getSortedPaths() {
+    try {
+      // Previously, this got the filesystem of the Table, which could be
+      // different from the filesystem of the partition.
+      FileSystem fs = FileSystem.get(getPath().toUri(), Hive.get()
+          .getConf());
+      String pathPattern = getPath().toString();
+      if (getNumBuckets() > 0) {
+        pathPattern = pathPattern + "/*";
+      }
+      LOG.info("Path pattern = " + pathPattern);
+      FileStatus srcs[] = fs.globStatus(new Path(pathPattern));
+      Arrays.sort(srcs);
+      for (FileStatus src : srcs) {
+        LOG.info("Got file: " + src.getPath());
+      }
+      if (srcs.length == 0) {
+        return null;
+      }
+      return srcs;
+    } catch (Exception e) {
+      throw new RuntimeException("Cannot get path ", e);
+    }
   }
 };

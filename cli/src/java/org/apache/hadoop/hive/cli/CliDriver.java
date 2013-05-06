@@ -55,7 +55,7 @@ import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
 import org.apache.hadoop.hive.ql.exec.HadoopJobExecHelper;
 import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.exec.Utilities.StreamPrinter;
-import org.apache.hadoop.hive.ql.parse.ParseDriver;
+import org.apache.hadoop.hive.ql.parse.HiveParser;
 import org.apache.hadoop.hive.ql.parse.VariableSubstitution;
 import org.apache.hadoop.hive.ql.processors.CommandProcessor;
 import org.apache.hadoop.hive.ql.processors.CommandProcessorFactory;
@@ -78,8 +78,8 @@ import sun.misc.SignalHandler;
  */
 public class CliDriver {
 
-  public static String prompt = "hive";
-  public static String prompt2 = "    "; // when ';' is not yet seen
+  public static String prompt = null;
+  public static String prompt2 = null; // when ';' is not yet seen
   public static final int LINES_TO_FETCH = 40; // number of lines to fetch in batch from remote hive server
 
   public static final String HIVERCFILE = ".hiverc";
@@ -266,11 +266,13 @@ public class CliDriver {
 
             printHeader(qp, out);
 
+            int counter = 0;
             try {
               while (qp.getResults(res)) {
                 for (String r : res) {
                   out.println(r);
                 }
+                counter += res.size();
                 res.clear();
                 if (out.checkError()) {
                   break;
@@ -289,10 +291,9 @@ public class CliDriver {
             }
 
             long end = System.currentTimeMillis();
-            if (end > start) {
-              double timeTaken = (end - start) / 1000.0;
-              console.printInfo("Time taken: " + timeTaken + " seconds", null);
-            }
+            double timeTaken = (end - start) / 1000.0;
+            console.printInfo("Time taken: " + timeTaken + " seconds" +
+                (counter == 0 ? "" : ", Fetched: " + counter + " row(s)"));
 
           } else {
             String firstToken = tokenizeCmd(cmd.trim())[0];
@@ -535,7 +536,7 @@ public class CliDriver {
     }
 
     // We add Hive keywords, including lower-cased versions
-    for (String s : ParseDriver.getKeywords()) {
+    for (String s : HiveParser.getKeywords()) {
       sc.addCandidateString(s);
       sc.addCandidateString(s.toLowerCase());
     }
@@ -660,6 +661,11 @@ public class CliDriver {
       conf.set((String) item.getKey(), (String) item.getValue());
       ss.getOverriddenConfigurations().put((String) item.getKey(), (String) item.getValue());
     }
+
+    // read prompt configuration and substitute variables.
+    prompt = conf.getVar(HiveConf.ConfVars.CLIPROMPT);
+    prompt = new VariableSubstitution().substitute(conf, prompt);
+    prompt2 = spacesForString(prompt);
 
     SessionState.start(ss);
 

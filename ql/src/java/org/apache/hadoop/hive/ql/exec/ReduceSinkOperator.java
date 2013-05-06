@@ -39,9 +39,9 @@ import org.apache.hadoop.hive.serde2.objectinspector.InspectableObject;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
+import org.apache.hadoop.hive.serde2.objectinspector.StandardUnionObjectInspector.StandardUnion;
 import org.apache.hadoop.hive.serde2.objectinspector.StructObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.UnionObjectInspector;
-import org.apache.hadoop.hive.serde2.objectinspector.StandardUnionObjectInspector.StandardUnion;
 import org.apache.hadoop.io.BytesWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
@@ -80,6 +80,15 @@ public class ReduceSinkOperator extends TerminalOperator<ReduceSinkDesc>
   transient byte[] tagByte = new byte[1];
   transient protected int numDistributionKeys;
   transient protected int numDistinctExprs;
+  transient String inputAlias;  // input alias of this RS for join (used for PPD)
+
+  public void setInputAlias(String inputAlias) {
+    this.inputAlias = inputAlias;
+  }
+
+  public String getInputAlias() {
+    return inputAlias;
+  }
 
   @Override
   protected void initializeOp(Configuration hconf) throws HiveException {
@@ -167,7 +176,7 @@ public class ReduceSinkOperator extends TerminalOperator<ReduceSinkDesc>
     ObjectInspector[] fieldObjectInspectors = initEvaluators(evals, 0, length, rowInspector);
     sois.addAll(Arrays.asList(fieldObjectInspectors));
 
-    if (evals.length > length) {
+    if (outputColNames.size() > length) {
       // union keys
       List<ObjectInspector> uois = new ArrayList<ObjectInspector>();
       for (List<Integer> distinctCols : distinctColIndices) {
@@ -310,11 +319,20 @@ public class ReduceSinkOperator extends TerminalOperator<ReduceSinkDesc>
    */
   @Override
   public String getName() {
+    return getOperatorName();
+  }
+
+  static public String getOperatorName() {
     return "RS";
   }
 
   @Override
   public OperatorType getType() {
     return OperatorType.REDUCESINK;
+  }
+
+  @Override
+  public boolean opAllowedBeforeMapJoin() {
+    return false;
   }
 }

@@ -18,6 +18,7 @@
 
 package org.apache.hadoop.hive.metastore;
 
+import static org.apache.hadoop.hive.metastore.MetaStoreUtils.DATABASE_WAREHOUSE_SUFFIX;
 import static org.apache.hadoop.hive.metastore.MetaStoreUtils.DEFAULT_DATABASE_NAME;
 
 import java.io.FileNotFoundException;
@@ -164,6 +165,14 @@ public class Warehouse {
     return new Path(db.getLocationUri());
   }
 
+  public Path getDefaultDatabasePath(String dbName) throws MetaException {
+    if (dbName.equalsIgnoreCase(DEFAULT_DATABASE_NAME)) {
+      return getWhRoot();
+    }
+    return new Path(getWhRoot(), dbName.toLowerCase() + DATABASE_WAREHOUSE_SUFFIX);
+  }
+
+
   public Path getTablePath(Database db, String tableName)
       throws MetaException {
     return getDnsPath(new Path(getDatabasePath(db), tableName.toLowerCase()));
@@ -191,6 +200,18 @@ public class Warehouse {
     } catch (IOException e) {
       closeFs(fs);
       MetaStoreUtils.logAndThrowMetaException(e);
+    }
+    return false;
+  }
+
+  public boolean renameDir(Path sourcePath, Path destPath) throws MetaException {
+    FileSystem fs = null;
+    try {
+      fs = getFs(sourcePath);
+      fs.rename(sourcePath, destPath);
+      return true;
+    } catch (Exception ex) {
+      MetaStoreUtils.logAndThrowMetaException(ex);
     }
     return false;
   }
@@ -374,6 +395,38 @@ public class Warehouse {
     for (int i = kvs.size(); i > 0; i--) {
       partSpec.put(kvs.get(i - 1)[0], kvs.get(i - 1)[1]);
     }
+  }
+
+  public static Map<String, String> makeEscSpecFromName(String name) throws MetaException {
+
+    if (name == null || name.isEmpty()) {
+      throw new MetaException("Partition name is invalid. " + name);
+    }
+    LinkedHashMap<String, String> partSpec = new LinkedHashMap<String, String>();
+
+    Path currPath = new Path(name);
+
+    List<String[]> kvs = new ArrayList<String[]>();
+    do {
+      String component = currPath.getName();
+      Matcher m = pat.matcher(component);
+      if (m.matches()) {
+        String k = m.group(1);
+        String v = m.group(2);
+        String[] kv = new String[2];
+        kv[0] = k;
+        kv[1] = v;
+        kvs.add(kv);
+      }
+      currPath = currPath.getParent();
+    } while (currPath != null && !currPath.getName().isEmpty());
+
+    // reverse the list since we checked the part from leaf dir to table's base dir
+    for (int i = kvs.size(); i > 0; i--) {
+      partSpec.put(kvs.get(i - 1)[0], kvs.get(i - 1)[1]);
+    }
+
+    return partSpec;
   }
 
   public Path getPartitionPath(Database db, String tableName,

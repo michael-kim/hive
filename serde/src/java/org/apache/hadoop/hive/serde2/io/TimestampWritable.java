@@ -29,6 +29,7 @@ import java.util.Arrays;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.serde2.ByteStream.Output;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils;
 import org.apache.hadoop.hive.serde2.lazybinary.LazyBinaryUtils.VInt;
@@ -449,6 +450,17 @@ public class TimestampWritable implements WritableComparable<TimestampWritable> 
    */
   public static Timestamp floatToTimestamp(float f) {
     return doubleToTimestamp((double) f);
+  }
+
+  public static Timestamp decimalToTimestamp(HiveDecimal d) {
+    BigDecimal seconds = new BigDecimal(d.longValue());
+    long millis = d.bigDecimalValue().multiply(new BigDecimal(1000)).longValue();
+    int nanos = d.bigDecimalValue().subtract(seconds).multiply(new BigDecimal(1000000000)).intValue();
+
+    Timestamp t = new Timestamp(millis);
+    t.setNanos(nanos);
+
+    return t;
   }
 
   public static Timestamp doubleToTimestamp(double f) {

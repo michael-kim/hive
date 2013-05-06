@@ -21,18 +21,31 @@ package org.apache.hadoop.hive.metastore.events;
 import org.apache.hadoop.hive.metastore.HiveMetaStore.HMSHandler;
 import org.apache.hadoop.hive.metastore.api.Table;
 
-public class PreDropTableEvent extends PreEventContext{
+public class PreDropTableEvent extends PreEventContext {
 
   private final Table table;
+  private final boolean deleteData;
 
-  public PreDropTableEvent (Table table, HMSHandler handler) {
-    super (PreEventType.DROP_TABLE, handler);
+  public PreDropTableEvent(Table table, boolean deleteData, HMSHandler handler) {
+    super(PreEventType.DROP_TABLE, handler);
     this.table = table;
+    // In HiveMetaStore, the deleteData flag indicates whether DFS data should be
+    // removed on a drop.
+    this.deleteData = false;
   }
+
   /**
    * @return the table
    */
-  public Table getTable () {
+  public Table getTable() {
     return table;
   }
+
+  /**
+   * @return the deleteData flag
+   */
+  public boolean getDeleteData() {
+    return deleteData;
+  }
+
 }

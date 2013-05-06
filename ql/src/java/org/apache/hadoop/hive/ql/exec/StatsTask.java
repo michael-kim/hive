@@ -36,6 +36,7 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.ql.Context;
 import org.apache.hadoop.hive.ql.DriverContext;
+import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
@@ -46,6 +47,7 @@ import org.apache.hadoop.hive.ql.plan.StatsWork;
 import org.apache.hadoop.hive.ql.plan.api.StageType;
 import org.apache.hadoop.hive.ql.stats.StatsAggregator;
 import org.apache.hadoop.hive.ql.stats.StatsFactory;
+import org.apache.hadoop.hive.ql.stats.StatsPublisher;
 import org.apache.hadoop.hive.ql.stats.StatsSetupConst;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.util.StringUtils;
@@ -280,6 +282,17 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
       if (!this.getWork().getNoStatsAggregator()) {
         String statsImplementationClass = HiveConf.getVar(conf, HiveConf.ConfVars.HIVESTATSDBCLASS);
         StatsFactory.setImplementation(statsImplementationClass, conf);
+        if (work.isNoScanAnalyzeCommand()){
+          // initialize stats publishing table for noscan which has only stats task
+          // the rest of MR task following stats task initializes it in ExecDriver.java
+          StatsPublisher statsPublisher = StatsFactory.getStatsPublisher();
+          if (!statsPublisher.init(conf)) { // creating stats table if not exists
+            if (HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVE_STATS_RELIABLE)) {
+              throw
+                new HiveException(ErrorMsg.STATSPUBLISHER_INITIALIZATION_ERROR.getErrorCodedMsg());
+            }
+          }
+        }
         statsAggregator = StatsFactory.getStatsAggregator();
         // manufacture a StatsAggregator
         if (!statsAggregator.connect(conf)) {
@@ -306,6 +319,8 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
 
       List<Partition> partitions = getPartitionsList();
       boolean atomic = HiveConf.getBoolVar(conf, HiveConf.ConfVars.HIVE_STATS_ATOMIC);
+      int maxPrefixLength = HiveConf.getIntVar(conf,
+          HiveConf.ConfVars.HIVE_STATS_KEY_PREFIX_MAX_LENGTH);
 
       if (partitions == null) {
         // non-partitioned tables:
@@ -325,9 +340,10 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
 
         // In case of a non-partitioned table, the key for stats temporary store is "rootDir"
         if (statsAggregator != null) {
+          String aggKey = Utilities.getHashedStatsPrefix(work.getAggKey(), maxPrefixLength);
           updateStats(collectableStats, tblStats, statsAggregator, parameters,
-              work.getAggKey(), atomic);
-          statsAggregator.cleanUp(work.getAggKey());
+              aggKey, atomic);
+          statsAggregator.cleanUp(aggKey);
         }
         // The collectable stats for the aggregator needs to be cleared.
         // For eg. if a file is being loaded, the old number of rows are not valid
@@ -368,13 +384,15 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
 
           // In that case of a partition, the key for stats temporary store is
           // "rootDir/[dynamic_partition_specs/]%"
-          String partitionID = work.getAggKey() + Warehouse.makePartPath(partn.getSpec());
+          String partitionID = Utilities.getHashedStatsPrefix(
+              work.getAggKey() + Warehouse.makePartPath(partn.getSpec()), maxPrefixLength);
 
           LOG.info("Stats aggregator : " + partitionID);
 
           if (statsAggregator != null) {
             updateStats(collectableStats, newPartStats, statsAggregator,
                 parameters, partitionID, atomic);
+            statsAggregator.cleanUp(partitionID);
           } else {
             for (String statType : collectableStats) {
               // The collectable stats for the aggregator needs to be cleared.
@@ -391,7 +409,10 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
           }
 
           fileSys = partn.getPartitionPath().getFileSystem(conf);
-          fileStatus = Utilities.getFileStatusRecurse(partn.getPartitionPath(), 1, fileSys);
+          /* consider sub-directory created from list bucketing. */
+          int listBucketingDepth = calculateListBucketingDMLDepth(partn);
+          fileStatus = Utilities.getFileStatusRecurse(partn.getPartitionPath(),
+              (1 + listBucketingDepth), fileSys);
           newPartStats.setStat(StatsSetupConst.NUM_FILES, fileStatus.length);
 
           long partitionSize = 0L;
@@ -420,10 +441,6 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
           tPart.setParameters(parameters);
           String tableFullName = table.getDbName() + "." + table.getTableName();
           db.alterPartition(tableFullName, new Partition(table, tPart));
-
-          if (statsAggregator != null) {
-            statsAggregator.cleanUp(partitionID);
-          }
 
           console.printInfo("Partition " + tableFullName + partn.getSpec() +
               " stats: [" + newPartStats.toString() + ']');
@@ -464,6 +481,28 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
     // The return value of 0 indicates success,
     // anything else indicates failure
     return ret;
+  }
+
+  /**
+   * List bucketing will introduce sub-directories.
+   *
+   * calculate it here in order to go to the leaf directory
+   *
+   * so that we can count right number of files.
+   *
+   * @param partn
+   * @return
+   */
+  private int calculateListBucketingDMLDepth(Partition partn) {
+    // list bucketing will introduce more files
+    int listBucketingDepth = 0;
+    if ((partn.getSkewedColNames() != null) && (partn.getSkewedColNames().size() > 0)
+        && (partn.getSkewedColValues() != null) && (partn.getSkewedColValues().size() > 0)
+        && (partn.getSkewedColValueLocationMaps() != null)
+        && (partn.getSkewedColValueLocationMaps().size() > 0)) {
+      listBucketingDepth = partn.getSkewedColNames().size();
+    }
+    return listBucketingDepth;
   }
 
   private boolean existStats(Map<String, String> parameters) {
@@ -541,10 +580,13 @@ public class StatsTask extends Task<StatsWork> implements Serializable {
       }
       DynamicPartitionCtx dpCtx = tbd.getDPCtx();
       if (dpCtx != null && dpCtx.getNumDPCols() > 0) { // dynamic partitions
-        // load the list of DP partitions and return the list of partition specs
-        for (LinkedHashMap<String, String> partSpec : dpPartSpecs) {
-          Partition partn = db.getPartition(table, partSpec, false);
-          list.add(partn);
+        // If no dynamic partitions are generated, dpPartSpecs may not be initialized
+        if (dpPartSpecs != null) {
+          // load the list of DP partitions and return the list of partition specs
+          for (LinkedHashMap<String, String> partSpec : dpPartSpecs) {
+            Partition partn = db.getPartition(table, partSpec, false);
+            list.add(partn);
+          }
         }
       } else { // static partition
         Partition partn = db.getPartition(table, tbd.getPartitionSpec(), false);
