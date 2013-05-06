@@ -25,6 +25,7 @@ import org.apache.hadoop.hive.ql.exec.Description;
 import org.apache.hadoop.hive.ql.exec.UDFArgumentTypeException;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
+import org.apache.hadoop.hive.ql.util.JavaDataModel;
 import org.apache.hadoop.hive.serde2.io.DoubleWritable;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorFactory;
@@ -43,7 +44,7 @@ import org.apache.hadoop.util.StringUtils;
 /**
  * Compute the variance. This class is extended by: GenericUDAFVarianceSample
  * GenericUDAFStd GenericUDAFStdSample
- * 
+ *
  */
 @Description(name = "variance,var_pop",
     value = "_FUNC_(x) - Returns the variance of a set of numbers")
@@ -72,6 +73,7 @@ public class GenericUDAFVariance extends AbstractGenericUDAFResolver {
     case DOUBLE:
     case STRING:
     case TIMESTAMP:
+    case DECIMAL:
       return new GenericUDAFVarianceEvaluator();
     case BOOLEAN:
     default:
@@ -85,18 +87,18 @@ public class GenericUDAFVariance extends AbstractGenericUDAFResolver {
    * Evaluate the variance using the algorithm described by Chan, Golub, and LeVeque in
    * "Algorithms for computing the sample variance: analysis and recommendations"
    * The American Statistician, 37 (1983) pp. 242--247.
-   * 
+   *
    * variance = variance1 + variance2 + n/(m*(m+n)) * pow(((m/n)*t1 - t2),2)
-   * 
+   *
    * where: - variance is sum[x-avg^2] (this is actually n times the variance)
    * and is updated at every step. - n is the count of elements in chunk1 - m is
-   * the count of elements in chunk2 - t1 = sum of elements in chunk1, t2 = 
+   * the count of elements in chunk2 - t1 = sum of elements in chunk1, t2 =
    * sum of elements in chunk2.
    *
    * This algorithm was proven to be numerically stable by J.L. Barlow in
    * "Error analysis of a pairwise summation algorithm to compute sample variance"
    * Numer. Math, 58 (1991) pp. 583--590
-   * 
+   *
    */
   public static class GenericUDAFVarianceEvaluator extends GenericUDAFEvaluator {
 
@@ -170,10 +172,13 @@ public class GenericUDAFVariance extends AbstractGenericUDAFResolver {
       }
     }
 
-    static class StdAgg implements AggregationBuffer {
+    @AggregationType(estimable = true)
+    static class StdAgg extends AbstractAggregationBuffer {
       long count; // number of elements
       double sum; // sum of elements
       double variance; // sum[x-avg^2] (this is actually n times the variance)
+      @Override
+      public int estimate() { return JavaDataModel.PRIMITIVES2 * 3; }
     };
 
     @Override

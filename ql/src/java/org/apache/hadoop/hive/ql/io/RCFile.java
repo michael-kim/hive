@@ -41,6 +41,7 @@ import org.apache.hadoop.hive.serde2.ColumnProjectionUtils;
 import org.apache.hadoop.hive.serde2.columnar.BytesRefArrayWritable;
 import org.apache.hadoop.hive.serde2.columnar.BytesRefWritable;
 import org.apache.hadoop.hive.serde2.columnar.LazyDecompressionCallback;
+import org.apache.hadoop.hive.shims.ShimLoader;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.SequenceFile.Metadata;
@@ -242,6 +243,12 @@ public class RCFile {
       this.numberRows = numberRows;
     }
 
+    public void nullColumn(int columnIndex) {
+      eachColumnValueLen[columnIndex] = 0;
+      eachColumnUncompressedValueLen[columnIndex] = 0;
+      allCellValLenBuffer[columnIndex] = new NonSyncDataOutputBuffer();
+    }
+
     /**
      * add in a new column's meta data.
      *
@@ -315,6 +322,21 @@ public class RCFile {
     public int compareTo(Object arg0) {
       throw new RuntimeException("compareTo not supported in class "
           + this.getClass().getName());
+    }
+
+    public int[] getEachColumnUncompressedValueLen() {
+      return eachColumnUncompressedValueLen;
+    }
+
+    public int[] getEachColumnValueLen() {
+      return eachColumnValueLen;
+    }
+
+    /**
+     * @return the numberRows
+     */
+    public int getNumberRows() {
+      return numberRows;
     }
   }
 
@@ -537,6 +559,14 @@ public class RCFile {
       }
     }
 
+    public void nullColumn(int columnIndex) {
+      if (codec != null) {
+        compressedColumnsValueBuffer[columnIndex].reset();
+      } else {
+        loadedColumnsValueBuffer[columnIndex].reset();
+      }
+    }
+
     public void clearColumnBuffer() throws IOException {
       decompressBuffer.reset();
     }
@@ -547,7 +577,11 @@ public class RCFile {
       }
       if (codec != null) {
         IOUtils.closeStream(decompressBuffer);
-        CodecPool.returnDecompressor(valDecompressor);
+        if (valDecompressor != null) {
+          // Make sure we only return valDecompressor once.
+          CodecPool.returnDecompressor(valDecompressor);
+          valDecompressor = null;
+        }
       }
     }
 
@@ -732,7 +766,8 @@ public class RCFile {
     public Writer(FileSystem fs, Configuration conf, Path name,
         Progressable progress, Metadata metadata, CompressionCodec codec) throws IOException {
       this(fs, conf, name, fs.getConf().getInt("io.file.buffer.size", 4096),
-          fs.getDefaultReplication(), fs.getDefaultBlockSize(), progress,
+              ShimLoader.getHadoopShims().getDefaultReplication(fs, name),
+              ShimLoader.getHadoopShims().getDefaultBlockSize(fs, name), progress,
           metadata, codec);
     }
 
@@ -1012,6 +1047,7 @@ public class RCFile {
         int compressedKeyLen = compressionBuffer.getLength();
         out.writeInt(compressedKeyLen);
         out.write(compressionBuffer.getData(), 0, compressedKeyLen);
+        CodecPool.returnCompressor(compressor);
       } else {
         out.writeInt(keyLength);
         keyBuffer.write(out);
@@ -1055,6 +1091,7 @@ public class RCFile {
       public int rowReadIndex;
       public int runLength;
       public int prvLength;
+      public boolean isNulled;
     }
     private final Path file;
     private final FSDataInputStream in;
@@ -1348,21 +1385,31 @@ public class RCFile {
 
       try {
         seek(position + 4); // skip escape
-        in.readFully(syncCheck);
-        int syncLen = sync.length;
-        for (int i = 0; in.getPos() < end; i++) {
-          int j = 0;
-          for (; j < syncLen; j++) {
-            if (sync[j] != syncCheck[(i + j) % syncLen]) {
-              break;
+
+        int prefix = sync.length;
+        int n = conf.getInt("io.bytes.per.checksum", 512);
+        byte[] buffer = new byte[prefix+n];
+        n = (int)Math.min(n, end - in.getPos());
+        /* fill array with a pattern that will never match sync */
+        Arrays.fill(buffer, (byte)(~sync[0])); 
+        while(n > 0 && (in.getPos() + n) <= end) {
+          position = in.getPos();
+          in.readFully(buffer, prefix, n);
+          /* the buffer has n+sync bytes */
+          for(int i = 0; i < n; i++) {
+            int j;
+            for(j = 0; j < sync.length && sync[j] == buffer[i+j]; j++) {
+              /* nothing */
+            }
+            if(j == sync.length) {
+              /* simplified from (position + (i - prefix) + sync.length) - SYNC_SIZE */
+              in.seek(position + i - SYNC_SIZE);
+              return;
             }
           }
-          if (j == syncLen) {
-            in.seek(in.getPos() - SYNC_SIZE); // position before
-            // sync
-            return;
-          }
-          syncCheck[i % syncLen] = in.readByte();
+          /* move the last 16 bytes to the prefix area */
+          System.arraycopy(buffer, buffer.length - prefix - 1, buffer, 0, prefix);
+          n = (int)Math.min(n, end - in.getPos());
         }
       } catch (ChecksumException e) { // checksum failure
         handleChecksumException(e);
@@ -1469,6 +1516,7 @@ public class RCFile {
         col.rowReadIndex = 0;
         col.runLength = 0;
         col.prvLength = -1;
+        col.isNulled = colValLenBufferReadIn[selIx].getLength() == 0;
       }
 
       return currentKeyLength;
@@ -1672,18 +1720,22 @@ public class RCFile {
           SelectedColumn col = selectedColumns[j];
           int i = col.colIndex;
 
-          BytesRefWritable ref = ret.unCheckedGet(i);
-
-          colAdvanceRow(j, col);
-
-          if (currentValue.decompressedFlag[j]) {
-            ref.set(currentValue.loadedColumnsValueBuffer[j].getData(),
-                col.rowReadIndex, col.prvLength);
+          if (col.isNulled) {
+            ret.set(i, null);
           } else {
-            ref.set(currentValue.lazyDecompressCallbackObjs[j],
-                col.rowReadIndex, col.prvLength);
+            BytesRefWritable ref = ret.unCheckedGet(i);
+
+            colAdvanceRow(j, col);
+
+            if (currentValue.decompressedFlag[j]) {
+              ref.set(currentValue.loadedColumnsValueBuffer[j].getData(),
+                  col.rowReadIndex, col.prvLength);
+            } else {
+              ref.set(currentValue.lazyDecompressCallbackObjs[j],
+                  col.rowReadIndex, col.prvLength);
+            }
+            col.rowReadIndex += col.prvLength;
           }
-          col.rowReadIndex += col.prvLength;
         }
       } else {
         // This version of the loop eliminates a condition check and branch
@@ -1692,12 +1744,16 @@ public class RCFile {
           SelectedColumn col = selectedColumns[j];
           int i = col.colIndex;
 
-          BytesRefWritable ref = ret.unCheckedGet(i);
+          if (col.isNulled) {
+            ret.set(i, null);
+          } else {
+            BytesRefWritable ref = ret.unCheckedGet(i);
 
-          colAdvanceRow(j, col);
-          ref.set(currentValue.loadedColumnsValueBuffer[j].getData(),
-                col.rowReadIndex, col.prvLength);
-          col.rowReadIndex += col.prvLength;
+            colAdvanceRow(j, col);
+            ref.set(currentValue.loadedColumnsValueBuffer[j].getData(),
+                  col.rowReadIndex, col.prvLength);
+            col.rowReadIndex += col.prvLength;
+          }
         }
       }
       rowFetched = true;
@@ -1754,7 +1810,11 @@ public class RCFile {
       currentValue.close();
       if (decompress) {
         IOUtils.closeStream(keyDecompressedData);
-        CodecPool.returnDecompressor(keyDecompressor);
+        if (keyDecompressor != null) {
+          // Make sure we only return keyDecompressor once.
+          CodecPool.returnDecompressor(keyDecompressor);
+          keyDecompressor = null;
+        }
       }
     }
 

@@ -47,22 +47,12 @@ public class ProxyFileSystem extends FilterFileSystem {
 
   private Path swizzleParamPath(Path p) {
     String pathUriString = p.toUri().toString();
-    if (Shell.WINDOWS) {
-      // Some of the file paths (Files with partition option) in HDFS '='
-      // but Windows file path doesn't support '=' so replace it with special string.
-      pathUriString = pathUriString.replaceAll("=", "------");
-    }
     URI newPathUri = URI.create(pathUriString);
     return new Path (realScheme, realAuthority, newPathUri.getPath());
   }
 
   private Path swizzleReturnPath(Path p) {
     String pathUriString = p.toUri().toString();
-    if (Shell.WINDOWS) {
-      // Revert back the special string '------' with '=' when we do the reverse conversion
-      // from Windows path to HDFS
-      pathUriString = pathUriString.replaceAll("------", "=");
-    }
     URI newPathUri = URI.create(pathUriString);
     return new Path (myScheme, myAuthority, newPathUri.getPath());
   }
@@ -84,6 +74,19 @@ public class ProxyFileSystem extends FilterFileSystem {
 
   public ProxyFileSystem(FileSystem fs) {
     throw new RuntimeException ("Unsupported constructor");
+  }
+
+  /**
+   *
+   * @param p
+   * @return
+   * @throws IOException
+   */
+  public Path resolvePath(final Path p) throws IOException {
+    // Return the fully-qualified path of path f resolving the path
+    // through any symlinks or mount point
+    checkPath(p);
+    return getFileStatus(p).getPath();
   }
 
   /**
@@ -134,7 +137,7 @@ public class ProxyFileSystem extends FilterFileSystem {
 
 
   @Override
-  protected void checkPath(Path path) {
+  protected void checkPath(final Path path) {
     super.checkPath(swizzleParamPath(path));
   }
 

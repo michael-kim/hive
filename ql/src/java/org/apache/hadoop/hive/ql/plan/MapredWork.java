@@ -20,18 +20,26 @@ package org.apache.hadoop.hive.ql.plan;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.ql.exec.FileSinkOperator;
 import org.apache.hadoop.hive.ql.exec.Operator;
+import org.apache.hadoop.hive.ql.exec.OperatorUtils;
 import org.apache.hadoop.hive.ql.exec.Utilities;
+import org.apache.hadoop.hive.ql.optimizer.physical.BucketingSortingCtx.BucketCol;
+import org.apache.hadoop.hive.ql.optimizer.physical.BucketingSortingCtx.SortCol;
 import org.apache.hadoop.hive.ql.parse.OpParseContext;
 import org.apache.hadoop.hive.ql.parse.QBJoinTree;
 import org.apache.hadoop.hive.ql.parse.SplitSample;
+import org.apache.hadoop.mapred.JobConf;
 
 /**
  * MapredWork.
@@ -89,7 +97,19 @@ public class MapredWork extends AbstractOperatorDesc {
   // used to indicate the input is sorted, and so a BinarySearchRecordReader shoudl be used
   private boolean inputFormatSorted = false;
 
-  private transient boolean smbJoin;
+  private transient boolean useBucketizedHiveInputFormat;
+
+  // if this is true, this means that this is the map reduce task which writes the final data,
+  // ignoring the optional merge task
+  private boolean finalMapRed = false;
+
+  // If this map reduce task has a FileSinkOperator, and bucketing/sorting metadata can be
+  // inferred about the data being written by that operator, these are mappings from the directory
+  // that operator writes into to the bucket/sort columns for that data.
+  private final Map<String, List<BucketCol>> bucketedColsByDirectory =
+      new HashMap<String, List<BucketCol>>();
+  private final Map<String, List<SortCol>> sortedColsByDirectory =
+      new HashMap<String, List<SortCol>>();
 
   public MapredWork() {
     aliasToPartnInfo = new LinkedHashMap<String, PartitionDesc>();
@@ -138,6 +158,34 @@ public class MapredWork extends AbstractOperatorDesc {
       final LinkedHashMap<String, ArrayList<String>> pathToAliases) {
     this.pathToAliases = pathToAliases;
   }
+
+  @Explain(displayName = "Truncated Path -> Alias", normalExplain = false)
+  /**
+   * This is used to display and verify output of "Path -> Alias" in test framework.
+   *
+   * {@link QTestUtil} masks "Path -> Alias" and makes verification impossible.
+   * By keeping "Path -> Alias" intact and adding a new display name which is not
+   * masked by {@link QTestUtil} by removing prefix.
+   *
+   * Notes: we would still be masking for intermediate directories.
+   *
+   * @return
+   */
+  public Map<String, ArrayList<String>> getTruncatedPathToAliases() {
+    Map<String, ArrayList<String>> trunPathToAliases = new LinkedHashMap<String,
+        ArrayList<String>>();
+    Iterator<Entry<String, ArrayList<String>>> itr = this.pathToAliases.entrySet().iterator();
+    while (itr.hasNext()) {
+      final Entry<String, ArrayList<String>> entry = itr.next();
+      String origiKey = entry.getKey();
+      String newKey = PlanUtils.removePrefixFromWarehouseConfig(origiKey);
+      ArrayList<String> value = entry.getValue();
+      trunPathToAliases.put(newKey, value);
+    }
+    return trunPathToAliases;
+  }
+
+
 
   @Explain(displayName = "Path -> Partition", normalExplain = false)
   public LinkedHashMap<String, PartitionDesc> getPathToPartitionInfo() {
@@ -195,6 +243,12 @@ public class MapredWork extends AbstractOperatorDesc {
     return keyDesc;
   }
 
+  /**
+   * If the plan has a reducer and correspondingly a reduce-sink, then store the TableDesc pointing
+   * to keySerializeInfo of the ReduceSink
+   *
+   * @param keyDesc
+   */
   public void setKeyDesc(final TableDesc keyDesc) {
     this.keyDesc = keyDesc;
   }
@@ -212,7 +266,7 @@ public class MapredWork extends AbstractOperatorDesc {
     return reducer;
   }
 
-  @Explain(displayName = "Percentage Sample")
+  @Explain(displayName = "Split Sample")
   public HashMap<String, SplitSample> getNameToSplitSample() {
     return nameToSplitSample;
   }
@@ -247,6 +301,16 @@ public class MapredWork extends AbstractOperatorDesc {
 
   public void setNumReduceTasks(final Integer numReduceTasks) {
     this.numReduceTasks = numReduceTasks;
+  }
+
+  @Explain(displayName = "Path -> Bucketed Columns", normalExplain = false)
+  public Map<String, List<BucketCol>> getBucketedColsByDirectory() {
+    return bucketedColsByDirectory;
+  }
+
+  @Explain(displayName = "Path -> Sorted Columns", normalExplain = false)
+  public Map<String, List<SortCol>> getSortedColsByDirectory() {
+    return sortedColsByDirectory;
   }
 
   @SuppressWarnings("nls")
@@ -450,7 +514,7 @@ public class MapredWork extends AbstractOperatorDesc {
     this.inputFormatSorted = inputFormatSorted;
   }
 
-  public void resolveDynamicPartitionMerge(HiveConf conf, Path path,
+  public void resolveDynamicPartitionStoredAsSubDirsMerge(HiveConf conf, Path path,
       TableDesc tblDesc, ArrayList<String> aliases, PartitionDesc partDesc) {
     pathToAliases.put(path.toString(), aliases);
     pathToPartitionInfo.put(path.toString(), partDesc);
@@ -488,11 +552,34 @@ public class MapredWork extends AbstractOperatorDesc {
     return returnList;
   }
 
-  public boolean isSmbJoin() {
-    return smbJoin;
+  public boolean isUseBucketizedHiveInputFormat() {
+    return useBucketizedHiveInputFormat;
   }
 
-  public void setSmbJoin(boolean smbJoin) {
-    this.smbJoin = smbJoin;
+  public void setUseBucketizedHiveInputFormat(boolean useBucketizedHiveInputFormat) {
+    this.useBucketizedHiveInputFormat = useBucketizedHiveInputFormat;
+  }
+
+  public boolean isFinalMapRed() {
+    return finalMapRed;
+  }
+
+  public void setFinalMapRed(boolean finalMapRed) {
+    this.finalMapRed = finalMapRed;
+  }
+
+  public void configureJobConf(JobConf jobConf) {
+    for (PartitionDesc partition : aliasToPartnInfo.values()) {
+      PlanUtils.configureJobConf(partition.getTableDesc(), jobConf);
+    }
+    Collection<Operator<?>> mappers = aliasToWork.values();
+    for (FileSinkOperator fs : OperatorUtils.findOperators(mappers, FileSinkOperator.class)) {
+      PlanUtils.configureJobConf(fs.getConf().getTableInfo(), jobConf);
+    }
+    if (reducer != null) {
+      for (FileSinkOperator fs : OperatorUtils.findOperators(reducer, FileSinkOperator.class)) {
+        PlanUtils.configureJobConf(fs.getConf().getTableInfo(), jobConf);
+      }
+    }
   }
 }

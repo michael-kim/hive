@@ -107,11 +107,13 @@ STAGE PLANS:
 
 PREHOOK: query: insert overwrite table nzhang_part partition (ds='2010-08-15', hr) select key, value, hr from srcpart where ds='2008-04-08'
 PREHOOK: type: QUERY
+PREHOOK: Input: default@srcpart
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
 PREHOOK: Output: default@nzhang_part@ds=2010-08-15
 POSTHOOK: query: insert overwrite table nzhang_part partition (ds='2010-08-15', hr) select key, value, hr from srcpart where ds='2008-04-08'
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@srcpart
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
 POSTHOOK: Output: default@nzhang_part@ds=2010-08-15/hr=11
@@ -122,11 +124,13 @@ POSTHOOK: Lineage: nzhang_part PARTITION(ds=2010-08-15,hr=12).key SIMPLE [(srcpa
 POSTHOOK: Lineage: nzhang_part PARTITION(ds=2010-08-15,hr=12).value SIMPLE [(srcpart)srcpart.FieldSchema(name:value, type:string, comment:default), ]
 PREHOOK: query: select * from nzhang_part
 PREHOOK: type: QUERY
+PREHOOK: Input: default@nzhang_part
 PREHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=11
 PREHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=12
 #### A masked pattern was here ####
 POSTHOOK: query: select * from nzhang_part
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@nzhang_part
 POSTHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=11
 POSTHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=12
 #### A masked pattern was here ####
@@ -1240,11 +1244,13 @@ STAGE PLANS:
 
 PREHOOK: query: insert overwrite table nzhang_part partition (ds='2010-08-15', hr=11) select key, value from srcpart where ds='2008-04-08'
 PREHOOK: type: QUERY
+PREHOOK: Input: default@srcpart
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
 PREHOOK: Output: default@nzhang_part@ds=2010-08-15/hr=11
 POSTHOOK: query: insert overwrite table nzhang_part partition (ds='2010-08-15', hr=11) select key, value from srcpart where ds='2008-04-08'
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@srcpart
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
 POSTHOOK: Output: default@nzhang_part@ds=2010-08-15/hr=11
@@ -1256,11 +1262,13 @@ POSTHOOK: Lineage: nzhang_part PARTITION(ds=2010-08-15,hr=12).key SIMPLE [(srcpa
 POSTHOOK: Lineage: nzhang_part PARTITION(ds=2010-08-15,hr=12).value SIMPLE [(srcpart)srcpart.FieldSchema(name:value, type:string, comment:default), ]
 PREHOOK: query: select * from nzhang_part
 PREHOOK: type: QUERY
+PREHOOK: Input: default@nzhang_part
 PREHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=11
 PREHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=12
 #### A masked pattern was here ####
 POSTHOOK: query: select * from nzhang_part
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@nzhang_part
 POSTHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=11
 POSTHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=12
 #### A masked pattern was here ####
@@ -2960,6 +2968,7 @@ select * from (
     select '1' as key, '1' as value, 'file,' as hr from src limit 1) s
 PREHOOK: type: QUERY
 PREHOOK: Input: default@src
+PREHOOK: Input: default@srcpart
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 PREHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
 PREHOOK: Output: default@nzhang_part@ds=2010-08-15
@@ -2970,6 +2979,7 @@ select * from (
     select '1' as key, '1' as value, 'file,' as hr from src limit 1) s
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@src
+POSTHOOK: Input: default@srcpart
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=11
 POSTHOOK: Input: default@srcpart@ds=2008-04-08/hr=12
 POSTHOOK: Output: default@nzhang_part@ds=2010-08-15/hr=11
@@ -3008,10 +3018,12 @@ ds=2010-08-15/hr=12
 ds=2010-08-15/hr=file,
 PREHOOK: query: select * from nzhang_part where hr = 'file,'
 PREHOOK: type: QUERY
+PREHOOK: Input: default@nzhang_part
 PREHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=file,
 #### A masked pattern was here ####
 POSTHOOK: query: select * from nzhang_part where hr = 'file,'
 POSTHOOK: type: QUERY
+POSTHOOK: Input: default@nzhang_part
 POSTHOOK: Input: default@nzhang_part@ds=2010-08-15/hr=file,
 #### A masked pattern was here ####
 POSTHOOK: Lineage: nzhang_part PARTITION(ds=2010-08-15,hr=11).key SIMPLE [(srcpart)srcpart.FieldSchema(name:key, type:string, comment:default), ]

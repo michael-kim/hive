@@ -34,11 +34,12 @@ import org.apache.hadoop.hbase.HTableDescriptor;
 import org.apache.hadoop.hbase.MasterNotRunningException;
 import org.apache.hadoop.hbase.client.HBaseAdmin;
 import org.apache.hadoop.hbase.client.HTable;
+import org.apache.hadoop.hbase.mapred.TableMapReduceUtil;
 import org.apache.hadoop.hbase.util.Bytes;
 import org.apache.hadoop.hive.hbase.HBaseSerDe.ColumnMapping;
 import org.apache.hadoop.hive.metastore.HiveMetaHook;
 import org.apache.hadoop.hive.metastore.MetaStoreUtils;
-import org.apache.hadoop.hive.metastore.api.Constants;
+import org.apache.hadoop.hive.metastore.api.hive_metastoreConstants;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.index.IndexPredicateAnalyzer;
@@ -268,6 +269,7 @@ public class HBaseStorageHandler extends DefaultStorageHandler
       configureTableJobProperties(tableDesc, jobProperties);
   }
 
+  @Override
   public void configureTableJobProperties(
     TableDesc tableDesc,
     Map<String, String> jobProperties) {
@@ -284,12 +286,23 @@ public class HBaseStorageHandler extends DefaultStorageHandler
       tableProperties.getProperty(HBaseSerDe.HBASE_TABLE_NAME);
     if (tableName == null) {
       tableName =
-        tableProperties.getProperty(Constants.META_TABLE_NAME);
+        tableProperties.getProperty(hive_metastoreConstants.META_TABLE_NAME);
       if (tableName.startsWith(DEFAULT_PREFIX)) {
         tableName = tableName.substring(DEFAULT_PREFIX.length());
       }
     }
     jobProperties.put(HBaseSerDe.HBASE_TABLE_NAME, tableName);
+  }
+
+  @Override
+  public void configureJobConf(TableDesc tableDesc, JobConf jobConf) {
+    try {
+      TableMapReduceUtil.addDependencyJars(jobConf);
+      org.apache.hadoop.hbase.mapreduce.TableMapReduceUtil.addDependencyJars(jobConf,
+          HBaseStorageHandler.class);
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   @Override
@@ -299,13 +312,13 @@ public class HBaseStorageHandler extends DefaultStorageHandler
     ExprNodeDesc predicate)
   {
     String columnNameProperty = jobConf.get(
-      org.apache.hadoop.hive.serde.Constants.LIST_COLUMNS);
+      org.apache.hadoop.hive.serde.serdeConstants.LIST_COLUMNS);
     List<String> columnNames =
       Arrays.asList(columnNameProperty.split(","));
 
     HBaseSerDe hbaseSerde = (HBaseSerDe) deserializer;
     int keyColPos = hbaseSerde.getKeyColumnOffset();
-    String keyColType = jobConf.get(org.apache.hadoop.hive.serde.Constants.LIST_COLUMN_TYPES).
+    String keyColType = jobConf.get(org.apache.hadoop.hive.serde.serdeConstants.LIST_COLUMN_TYPES).
         split(",")[keyColPos];
     IndexPredicateAnalyzer analyzer =
       HiveHBaseTableInputFormat.newIndexPredicateAnalyzer(columnNames.get(keyColPos), keyColType,

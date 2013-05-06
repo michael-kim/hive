@@ -44,11 +44,12 @@ import org.apache.hadoop.hive.ql.plan.ExtractDesc;
 import org.apache.hadoop.hive.ql.plan.FileSinkDesc;
 import org.apache.hadoop.hive.ql.plan.FilterDesc;
 import org.apache.hadoop.hive.ql.plan.MapredWork;
+import org.apache.hadoop.hive.ql.plan.PartitionDesc;
 import org.apache.hadoop.hive.ql.plan.PlanUtils;
 import org.apache.hadoop.hive.ql.plan.ReduceSinkDesc;
 import org.apache.hadoop.hive.ql.plan.ScriptDesc;
 import org.apache.hadoop.hive.ql.plan.SelectDesc;
-import org.apache.hadoop.hive.serde.Constants;
+import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.typeinfo.TypeInfoFactory;
 import org.apache.hadoop.mapred.TextInputFormat;
 
@@ -132,6 +133,11 @@ public class TestExecDriver extends TestCase {
     mr = PlanUtils.getMapRedWork();
   }
 
+  public static void addMapWork(MapredWork mr, Table tbl, String alias, Operator<?> work) {
+    mr.addMapWork(tbl.getDataLocation().toString(), alias, work, new PartitionDesc(
+        Utilities.getTableDesc(tbl), null));
+  }
+
   private static void fileDiff(String datafile, String testdir) throws Exception {
     String testFileDir = conf.get("test.data.files");
     System.out.println(testFileDir);
@@ -161,14 +167,14 @@ public class TestExecDriver extends TestCase {
         column, "", false));
     ExprNodeDesc lhs = new ExprNodeGenericFuncDesc(
         TypeInfoFactory.doubleTypeInfo, FunctionRegistry.getFunctionInfo(
-        Constants.DOUBLE_TYPE_NAME).getGenericUDF(), children1);
+        serdeConstants.DOUBLE_TYPE_NAME).getGenericUDF(), children1);
 
     ArrayList<ExprNodeDesc> children2 = new ArrayList<ExprNodeDesc>();
     children2.add(new ExprNodeConstantDesc(TypeInfoFactory.longTypeInfo, Long
         .valueOf(100)));
     ExprNodeDesc rhs = new ExprNodeGenericFuncDesc(
         TypeInfoFactory.doubleTypeInfo, FunctionRegistry.getFunctionInfo(
-        Constants.DOUBLE_TYPE_NAME).getGenericUDF(), children2);
+        serdeConstants.DOUBLE_TYPE_NAME).getGenericUDF(), children2);
 
     ArrayList<ExprNodeDesc> children3 = new ArrayList<ExprNodeDesc>();
     children3.add(lhs);
@@ -190,7 +196,7 @@ public class TestExecDriver extends TestCase {
     Operator<FilterDesc> op1 = OperatorFactory.get(getTestFilterDesc("key"),
         op2);
 
-    Utilities.addMapWork(mr, src, "a", op1);
+    addMapWork(mr, src, "a", op1);
   }
 
   @SuppressWarnings("unchecked")
@@ -209,7 +215,7 @@ public class TestExecDriver extends TestCase {
     Operator<FilterDesc> op1 = OperatorFactory.get(getTestFilterDesc("key"),
         op2);
 
-    Utilities.addMapWork(mr, src, "a", op1);
+    addMapWork(mr, src, "a", op1);
   }
 
   @SuppressWarnings("unchecked")
@@ -226,7 +232,7 @@ public class TestExecDriver extends TestCase {
         Utilities.makeList(getStringColumn("value")), outputColumns, true,
         -1, 1, -1));
 
-    Utilities.addMapWork(mr, src, "a", op1);
+    addMapWork(mr, src, "a", op1);
     mr.setKeyDesc(op1.getConf().getKeySerializeInfo());
     mr.getTagToValueDesc().add(op1.getConf().getValueSerializeInfo());
 
@@ -254,7 +260,7 @@ public class TestExecDriver extends TestCase {
         .makeList(getStringColumn("key"), getStringColumn("value")),
         outputColumns, false, -1, 1, -1));
 
-    Utilities.addMapWork(mr, src, "a", op1);
+    addMapWork(mr, src, "a", op1);
     mr.setKeyDesc(op1.getConf().getKeySerializeInfo());
     mr.getTagToValueDesc().add(op1.getConf().getValueSerializeInfo());
 
@@ -287,7 +293,7 @@ public class TestExecDriver extends TestCase {
         Utilities.makeList(getStringColumn("value")), outputColumns, true,
         Byte.valueOf((byte) 0), 1, -1));
 
-    Utilities.addMapWork(mr, src, "a", op1);
+    addMapWork(mr, src, "a", op1);
     mr.setKeyDesc(op1.getConf().getKeySerializeInfo());
     mr.getTagToValueDesc().add(op1.getConf().getValueSerializeInfo());
 
@@ -296,7 +302,7 @@ public class TestExecDriver extends TestCase {
         Utilities.makeList(getStringColumn("key")), outputColumns, true,
         Byte.valueOf((byte) 1), Integer.MAX_VALUE, -1));
 
-    Utilities.addMapWork(mr, src2, "b", op2);
+    addMapWork(mr, src2, "b", op2);
     mr.getTagToValueDesc().add(op2.getConf().getValueSerializeInfo());
 
     // reduce side work
@@ -338,7 +344,7 @@ public class TestExecDriver extends TestCase {
         .makeList(getStringColumn("key"), getStringColumn("value")),
         outputColumns), op0);
 
-    Utilities.addMapWork(mr, src, "a", op4);
+    addMapWork(mr, src, "a", op4);
     mr.setKeyDesc(op1.getConf().getKeySerializeInfo());
     mr.getTagToValueDesc().add(op1.getConf().getValueSerializeInfo());
 
@@ -375,7 +381,7 @@ public class TestExecDriver extends TestCase {
         .makeList(getStringColumn("key"), getStringColumn("value")),
         outputColumns), op0);
 
-    Utilities.addMapWork(mr, src, "a", op4);
+    addMapWork(mr, src, "a", op4);
     mr.setKeyDesc(op0.getConf().getKeySerializeInfo());
     mr.getTagToValueDesc().add(op0.getConf().getValueSerializeInfo());
 
@@ -414,7 +420,7 @@ public class TestExecDriver extends TestCase {
         .makeList(getStringColumn("key"), getStringColumn("value")),
         outputColumns), op0);
 
-    Utilities.addMapWork(mr, src, "a", op4);
+    addMapWork(mr, src, "a", op4);
     mr.setKeyDesc(op1.getConf().getKeySerializeInfo());
     mr.getTagToValueDesc().add(op1.getConf().getValueSerializeInfo());
 
